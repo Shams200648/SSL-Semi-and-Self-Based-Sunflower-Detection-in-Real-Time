@@ -1,0 +1,7 @@
+names:
+- Sunflower
+nc: 1
+path: D:\EWU\10th Semester\CSE475\LABS\Project\DINO\SSL-DINO
+test: test/images
+train: train/images
+val: valid/images
