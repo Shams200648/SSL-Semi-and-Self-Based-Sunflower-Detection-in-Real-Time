@@ -288,177 +288,227 @@ elif view_choice == "Plots":
         st.image(img, caption="Results Image", use_container_width=True)
 
 elif view_choice == "Arm Control":
-    st.subheader("🤖 xArm 1S Manual Control (Streamlit Version with Torque Control)")
+    st.subheader("🤖 xArm 1S Control Dashboard")
 
     import xarm
+    import cv2
+    import time
+    from pathlib import Path
+    import os
 
-    class XArmGUI:
-        def __init__(self):
-            self.robot = self.connect_to_robot()
-            if self.robot is None:
-                st.error("Exiting application due to connection failure.")
-                st.stop()
-            st.success("xArm connected Successfully")
+    control_mode = st.radio(
+        "Select Control Mode",
+        ["Manual Control", "Automated YOLO Pick-and-Place"]
+    )
 
-            # Default values
-            default_value = 500
-            keys = [
-                "gripper","link2","link3","link4","link5","link6",
-                "torque_gripper","torque_link2","torque_link3","torque_link4","torque_link5","torque_link6"
-            ]
+    # =====================
+    # Shared Camera Setup
+    # =====================
+    st.sidebar.subheader("🎥 Camera Source")
+    camera_type = st.sidebar.radio(
+        "Select Camera",
+        ["Laptop Webcam", "External USB Webcam", "Mobile Camera (IP/RTSP)"],
+        key="arm_camera_type"
+    )
 
-            # Initialize session state only if keys do not exist
-            for key in keys:
-                st.session_state.setdefault(key, default_value)
+    mobile_url = None
+    if camera_type == "Mobile Camera (IP/RTSP)":
+        mobile_url = st.sidebar.text_input(
+            "Enter Camera URL (e.g., http://192.168.0.101:8080/video)",
+            value="http://192.168.0.101:8080/video",
+            key="arm_camera_url"
+        )
+        if st.sidebar.button("🔍 Test Camera URL"):
+            cap_test = cv2.VideoCapture(mobile_url)
+            ret, frame = cap_test.read()
+            if ret:
+                st.sidebar.success("✅ Camera is reachable!")
+                st.sidebar.image(frame[:, :, ::-1], channels="RGB", width=300)
+            else:
+                st.sidebar.error("❌ Could not reach the camera. Check URL or network.")
+            cap_test.release()
 
-            # Columns for sliders
-            col1, col2, col3 = st.columns([2,2,1])
+    # =====================
+    # Manual Control
+    # =====================
+    if control_mode == "Manual Control":
+        class XArmManualGUI:
+            def __init__(self):
+                self.robot = self.connect_to_robot()
+                if self.robot is None:
+                    st.error("Exiting application due to connection failure.")
+                    st.stop()
+                st.success("✅ xArm connected successfully")
 
-            # Reset button in column 3
-            with col3:
-                if st.button("🔄 Reset to Default"):
-                    for key in keys:
-                        st.session_state[key] = default_value
-                    st.rerun()  # Rerun so sliders pick up default values
-                    st.info("✅ Sliders reset to default")
+                default_value = 500
+                keys = [
+                    "gripper","link2","link3","link4","link5","link6",
+                    "torque_gripper","torque_link2","torque_link3",
+                    "torque_link4","torque_link5","torque_link6"
+                ]
+                for key in keys:
+                    st.session_state.setdefault(key, default_value)
 
-            # Position sliders in col1
-            with col1:
-                st.slider("Gripper Position", 0, 1000, st.session_state.gripper, key="gripper")
-                st.slider("Link 2 Position", 0, 1000, st.session_state.link2, key="link2")
-                st.slider("Link 3 Position", 0, 1000, st.session_state.link3, key="link3")
-                st.slider("Link 4 Position", 0, 1000, st.session_state.link4, key="link4")
-                st.slider("Link 5 Position", 0, 1000, st.session_state.link5, key="link5")
-                st.slider("Link 6 Position", 0, 1000, st.session_state.link6, key="link6")
+                # Layout
+                col1, col2, col3 = st.columns([2,2,1])
+                with col3:
+                    if st.button("🔄 Reset to Default"):
+                        for key in keys:
+                            st.session_state[key] = default_value
+                        st.rerun()
+                        st.info("✅ Sliders reset to default")
 
-            # Torque sliders in col2
-            with col2:
-                st.slider("Gripper Torque", 0, 1000, st.session_state.torque_gripper, key="torque_gripper")
-                st.slider("Link 2 Torque", 0, 1000, st.session_state.torque_link2, key="torque_link2")
-                st.slider("Link 3 Torque", 0, 1000, st.session_state.torque_link3, key="torque_link3")
-                st.slider("Link 4 Torque", 0, 1000, st.session_state.torque_link4, key="torque_link4")
-                st.slider("Link 5 Torque", 0, 1000, st.session_state.torque_link5, key="torque_link5")
-                st.slider("Link 6 Torque", 0, 1000, st.session_state.torque_link6, key="torque_link6")
+                with col1:
+                    st.slider("Gripper Position", 0, 1000, st.session_state.gripper, key="gripper")
+                    st.slider("Link 2 Position", 0, 1000, st.session_state.link2, key="link2")
+                    st.slider("Link 3 Position", 0, 1000, st.session_state.link3, key="link3")
+                    st.slider("Link 4 Position", 0, 1000, st.session_state.link4, key="link4")
+                    st.slider("Link 5 Position", 0, 1000, st.session_state.link5, key="link5")
+                    st.slider("Link 6 Position", 0, 1000, st.session_state.link6, key="link6")
 
-            # Update arm continuously
-            self.send_val()
+                with col2:
+                    st.slider("Gripper Torque", 0, 1000, st.session_state.torque_gripper, key="torque_gripper")
+                    st.slider("Link 2 Torque", 0, 1000, st.session_state.torque_link2, key="torque_link2")
+                    st.slider("Link 3 Torque", 0, 1000, st.session_state.torque_link3, key="torque_link3")
+                    st.slider("Link 4 Torque", 0, 1000, st.session_state.torque_link4, key="torque_link4")
+                    st.slider("Link 5 Torque", 0, 1000, st.session_state.torque_link5, key="torque_link5")
+                    st.slider("Link 6 Torque", 0, 1000, st.session_state.torque_link6, key="torque_link6")
 
-        def send_val(self):
-            positions = [
-                st.session_state.gripper,
-                st.session_state.link2,
-                st.session_state.link3,
-                st.session_state.link4,
-                st.session_state.link5,
-                st.session_state.link6
-            ]
-            torques = [
-                st.session_state.torque_gripper,
-                st.session_state.torque_link2,
-                st.session_state.torque_link3,
-                st.session_state.torque_link4,
-                st.session_state.torque_link5,
-                st.session_state.torque_link6
-            ]
+                self.update_arm()
 
-            min_duration = 0.05
-            max_duration = 2.0
-            for i, (pos, tq) in enumerate(zip(positions, torques), start=1):
-                duration = max_duration - ((tq / 1000) * (max_duration - min_duration))
-                self.robot.setPosition(i, pos, int(duration * 1000), wait=False)
+            def update_arm(self):
+                positions = [
+                    st.session_state.gripper, st.session_state.link2,
+                    st.session_state.link3, st.session_state.link4,
+                    st.session_state.link5, st.session_state.link6
+                ]
+                torques = [
+                    st.session_state.torque_gripper, st.session_state.torque_link2,
+                    st.session_state.torque_link3, st.session_state.torque_link4,
+                    st.session_state.torque_link5, st.session_state.torque_link6
+                ]
+                min_duration, max_duration = 0.05, 2.0
+                for i, (pos, tq) in enumerate(zip(positions, torques), start=1):
+                    duration = max_duration - ((tq / 1000) * (max_duration - min_duration))
+                    self.robot.setPosition(i, pos, int(duration*1000), wait=False)
 
-        def connect_to_robot(self):
-            try:
-                robot = xarm.Controller('USB')
-                st.info("Connected to xArm robot.")
-                return robot
-            except:
-                st.error("Failed to connect to xArm robot")
-                return None
+            def connect_to_robot(self):
+                try:
+                    robot = xarm.Controller('USB')
+                    st.info("Connected to xArm robot")
+                    return robot
+                except:
+                    st.error("Failed to connect to xArm robot")
+                    return None
 
-    gui = XArmGUI()
+        gui = XArmManualGUI()
 
+    # =====================
+    # Automated YOLO Tracking (Camera attached to Arm)
+    # =====================
+    elif control_mode == "Automated YOLO Pick-and-Place":
+        class XArmAutoGUI:
+            def __init__(self):
+                self.robot = self.connect_to_robot()
+                if self.robot is None:
+                    st.error("Exiting due to connection failure.")
+                    st.stop()
+                st.success("✅ xArm connected successfully")
 
+                # Camera attached to xArm
+                self.cap = cv2.VideoCapture(2)  # Adjust camera ID
+                if not self.cap.isOpened():
+                    st.error("❌ Could not open the xArm-attached camera")
+                    st.stop()
+                
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                self.cap.set(cv2.CAP_PROP_FPS, 30)
 
+                # Video saving
+                self.preds_dir = Path(exp_choice) / "preds"
+                os.makedirs(self.preds_dir, exist_ok=True)
+                self.save_path = self.preds_dir / "automated_arm_tracking.mp4"
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                self.out = cv2.VideoWriter(str(self.save_path), fourcc, 20, (640, 480))
 
+                # Streamlit placeholders
+                self.frame_placeholder = st.empty()
+                self.fps_text = st.empty()
+                self.stop_button = st.button("⏹️ Stop Tracking Session")
 
-# elif view_choice == "Arm Control":
-#     st.subheader("🤖 xArm 1S Automated Control (Streamlit Version)")
+                # Default positions & torque
+                self.positions = [500]*6
+                self.torques = [500]*6
+                self.target_height = 400  # Z-axis height to follow objects
 
-#     import streamlit as st
-#     import xarm
-#     import time
-#     import random  # For demo automation (replace with your own logic or camera input)
+                self.run_tracking()
 
-#     class XArmAutoGUI:
-#         def __init__(self):
-#             self.robot = self.connect_to_robot()
-#             if self.robot is None:
-#                 st.error("Exiting due to connection failure.")
-#                 st.stop()
-#             st.success("✅ xArm connected successfully")
+            def run_tracking(self):
+                st.write("### Automated Tracking Running...")
+                prev_time = time.time()
+                while self.cap.isOpened():
+                    ret, frame = self.cap.read()
+                    if not ret:
+                        st.warning("⚠️ Cannot read frame")
+                        break
 
-#             # Default servo positions and torque
-#             self.positions = [500]*6
-#             self.torques = [500]*6
+                    frame = cv2.resize(frame, (640, 480))
+                    results = model(frame, stream=True, conf=conf_threshold, verbose=False)
+                    annotated_frame = frame.copy()
+                    object_center = None
 
-#             # Columns for info
-#             col1, col2, col3 = st.columns([2,2,1])
+                    # Detect first object (or largest)
+                    for r in results:
+                        annotated_frame = r.plot(line_width=2, font_size=12)
+                        if len(r.boxes.xyxy) > 0:
+                            x1, y1, x2, y2 = map(int, r.boxes.xyxy[0])
+                            object_center = ((x1 + x2)//2, (y1 + y2)//2)
+                            break
 
-#             # Reset button in col3
-#             with col3:
-#                 if st.button("🔄 Reset to Default"):
-#                     self.positions = [500]*6
-#                     self.torques = [500]*6
-#                     st.info("✅ Positions & Torque reset to 500")
+                    # Move arm to follow the object
+                    if object_center:
+                        cx, cy = object_center
+                        # Map pixel to arm workspace (example: 0-640 -> 0-800 units)
+                        servo_x = int(cx / 640 * 800)
+                        servo_y = int(cy / 480 * 800)
+                        self.positions[:2] = [servo_x, servo_y]
+                        self.positions[2] = self.target_height  # maintain Z height
+                        self.send_val()
 
-#             # Display current positions and torque in col1 & col2
-#             with col1:
-#                 st.write("### Current Positions")
-#                 for i, pos in enumerate(self.positions, start=1):
-#                     st.text(f"Link {i}: {pos}")
+                    # Save video
+                    self.out.write(cv2.resize(annotated_frame, (640, 480)))
 
-#             with col2:
-#                 st.write("### Current Torque")
-#                 for i, tq in enumerate(self.torques, start=1):
-#                     st.text(f"Link {i}: {tq}")
+                    # Display frame and FPS
+                    self.frame_placeholder.image(annotated_frame[:, :, ::-1], channels="RGB", width=600)
+                    curr_time = time.time()
+                    fps = 1 / max(curr_time - prev_time, 0.001)
+                    prev_time = curr_time
+                    self.fps_text.markdown(f"**FPS:** {fps:.1f}")
 
-#             # Run automated update loop
-#             self.run_automation()
+                    if self.stop_button:
+                        break
+                    time.sleep(0.05)
 
-#         def run_automation(self):
-#             st.write("### Automated Arm Control Running...")
-#             placeholder = st.empty()  # placeholder to show dynamic values
-#             while True:
-#                 # Example automated logic:
-#                 # You can replace this with camera detection or AI output
-#                 for i in range(6):
-#                     self.positions[i] = random.randint(200, 800)
-#                     self.torques[i] = random.randint(200, 800)
+                self.cap.release()
+                self.out.release()
+                st.success(f"✅ Tracking session saved at `{self.save_path}`")
+                with open(self.save_path, "rb") as f:
+                    st.download_button("💾 Download Tracking Video", f, file_name=self.save_path.name, mime="video/mp4")
 
-#                 # Update robot positions
-#                 self.send_val()
+            def send_val(self):
+                min_d, max_d = 0.05, 2.0
+                for i, (pos, tq) in enumerate(zip(self.positions, self.torques), start=1):
+                    duration = max_d - ((tq / 1000) * (max_d - min_d))
+                    self.robot.setPosition(i, pos, int(duration*1000), wait=False)
 
-#                 # Update Streamlit display
-#                 placeholder.text(f"Positions: {self.positions}\nTorque: {self.torques}")
+            def connect_to_robot(self):
+                try:
+                    robot = xarm.Controller('USB')
+                    st.info("Connected to xArm robot")
+                    return robot
+                except:
+                    st.error("Failed to connect to xArm robot")
+                    return None
 
-#                 # Update every 0.1 sec
-#                 time.sleep(0.1)
-
-#         def send_val(self):
-#             min_duration = 0.05
-#             max_duration = 2.0
-#             for i, (pos, tq) in enumerate(zip(self.positions, self.torques), start=1):
-#                 duration = max_duration - ((tq / 1000) * (max_duration - min_duration))
-#                 self.robot.setPosition(i, pos, int(duration*1000), wait=False)
-
-#         def connect_to_robot(self):
-#             try:
-#                 robot = xarm.Controller('USB')
-#                 st.info("Connected to xArm robot")
-#                 return robot
-#             except:
-#                 st.error("Failed to connect to xArm robot")
-#                 return None
-
-#     gui = XArmAutoGUI()
+        gui = XArmAutoGUI()
