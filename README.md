@@ -3,7 +3,7 @@
     > pip install --upgrade setuptools
     > pip install hidapi
     > pip install xarm
-    > pip instal pyserial
+    > pip install pyserial
 
 ## Methods and examples
 
